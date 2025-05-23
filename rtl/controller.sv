@@ -149,14 +149,14 @@ assign data_memory_sel = (memory_mux_selector && DATA_MEM_WIDTH != 32)
 // Bus Logic - Core
 assign core_ack_o = (memory_mux_selector) ? memory_ack : 1'b0;
 `ifndef ENABLE_SECOND_MEMORY
-assign core_data_o = (memory_mux_selector) ? (&core_addr_i[31:2]) ? timer_data_out : 
+assign core_data_o = (memory_mux_selector) ? (&core_addr_i[31:3]) ? timer_data_out : 
     memory_read_data : 32'h00000000;
 `else
 assign core_data_o = (memory_mux_selector) ? memory_read_data : 32'h00000000;
 `endif
 `ifdef ENABLE_SECOND_MEMORY
 assign data_mem_ack_o = (memory_mux_selector) ? data_memory_ack : 1'b0;
-assign data_mem_data_o = (memory_mux_selector) ? (&data_mem_addr_i[31:2]) ?
+assign data_mem_data_o = (memory_mux_selector) ? (&data_mem_addr_i[31:3]) ?
     {{(DATA_MEM_WIDTH-32){1'b0}}, timer_data_out} : data_memory_read_data : '0;
 `endif
 
@@ -171,12 +171,12 @@ logic reset_bus, bus_mode;
 logic [23:0] memory_page_number;
 logic [31:0] end_position;
 
-logic [31:0] timer_data_out; // 0xFFFFFFFC timer addr
+logic [31:0] timer_data_out; // 0xFFFFFFF8 timer addr
 logic timer_upper;
 `ifdef ENABLE_SECOND_MEMORY
-assign timer_upper = data_mem_addr_i[0];
+assign timer_upper = data_mem_addr_i[2];
 `else
-assign timer_upper = core_addr_i[0];
+assign timer_upper = core_addr_i[2];
 `endif
 
 always_ff @(posedge clk ) begin
