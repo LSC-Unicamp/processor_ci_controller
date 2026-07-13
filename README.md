@@ -1,40 +1,94 @@
-# Hardware infrastructure
+# ProcessorCI Controller
 
-## Processor CI Controller
+ProcessorCI Controller is the FPGA-side hardware infrastructure that wraps a
+processor core, controls its clock/reset/memory access, and interprets commands
+from the host communication protocol.
 
-Processor CI Controller is a hardware module that acts as a wrapper around the processor core, enabling control over it, monitoring the memory bus, and managing signals such as clock, reset, and halt.
+This repository owns the controller RTL, board projects, testbenches, examples,
+and MkDocs documentation for hardware integration.
 
-## Project Modules
+## Repository Layout
 
-The controller is divided into various modules, each responsible for performing a specific function. Among the existing modules, the main ones are:
+```text
+rtl/          Controller, interpreter, memory, reset, timer, and bus adapters
+modules/      Communication modules and optional integrations
+fpga/         Board-specific projects, constraints, and scripts
+testbenchs/   HDL testbenches
+examples/     Example processor integrations
+docs/         MkDocs documentation
+mkdocs.yml    Documentation site configuration
+Makefile      Hardware test/build helpers
+```
 
-![Diagram with the modules](docs/img/controlador-riscv.svg)
+## Controller Modules
 
-### Interpreter
+The main controller blocks are:
 
-The interpreter is responsible for receiving instructions sent by the test software and issuing commands to other modules. These commands can involve tasks such as reading and writing to memory, providing N clock cycles to the processor, etc.
+- Interpreter: receives protocol commands and dispatches controller actions.
+- Communication module: connects host communication to the controller.
+- Clock controller: provides controlled pulses or divided clocks.
+- Memory controller: arbitrates memory access between controller and processor.
+- Bus adapters: bridge supported processor bus protocols to the internal memory
+  interface.
 
-### Communication Module
+See the documentation site for diagrams and board-specific notes.
 
-The communication module acts as the bridge between the host machine running the test software and the controller. It is responsible for implementing the protocol to be used, which could be UART, SPI, or PCIe.
+## Supported Boards
 
-### Clock Controller
+Current board/project directories include:
 
-The clock controller manages the clock signal provided to the processor. It has the capability to supply a specific number of pulses and/or divide the clock frequency.
+- Digilent Nexys 4 DDR.
+- Tang Nano 20K.
+- Colorlight i9.
+- Digilent Arty A7 100T.
+- Xilinx VC709.
+- ZedBoard.
+- OpenSDRLab Kintex-7.
+- Cyclone 10 GX.
 
-### Memory Controller
+## Quick Start
 
-The memory controller provides an access interface to the memory for both the controller and the processor, managing the priority with which each can interact with the memory.
+Clone and initialize optional submodules when needed:
 
-## Currently supported FPGAs Boards
+```bash
+git clone https://github.com/LSC-Unicamp/processor_ci_controller.git
+cd processor_ci_controller
+git submodule update --init --recursive
+```
 
-- Digilent Nexys 4 DDR
-- Tang nano 20k
-- Colorlight i9
-- Digilent Arty A7 100T
-- Xilinx VC709
-- Cyclone 10 GX (In progress)
+Run available local hardware checks through the Makefile:
 
-<img src="docs/img/nexys4ddr.jpg" alt="Nexys 4 DDR" width="200px">
-<img src="docs/img/tangnano20k.jpg" alt="Tangnano 20k" width="200px">
-<img src="docs/img/colorlighti9.jpg" alt="Colorlight i9" width="200px">
+```bash
+make fifo
+make clk_divider
+```
+
+Board builds use the corresponding directory under `fpga/` and require the
+matching vendor or open-source FPGA toolchain.
+
+## Documentation
+
+Serve the MkDocs site locally:
+
+```bash
+pip install -r requirements.txt
+mkdocs serve
+```
+
+Documentation pages under `docs/` are the canonical source for protocol,
+integration, board, and usage guidance.
+
+## Development
+
+Keep RTL, testbench, board, and documentation changes together when modifying
+controller behavior. If a protocol command changes, update the communication
+repository and docs in the same feature branch or release plan.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Include the target board/toolchain and
+simulation output when reporting hardware issues.
+
+## License
+
+See [LICENSE](LICENSE) and documentation license files.
