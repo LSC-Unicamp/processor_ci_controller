@@ -9,7 +9,8 @@ module Controller #(
     parameter ID                 = 32'h00000001,
     parameter RESET_CLK_CYCLES   = 20,
     parameter MEMORY_FILE        = "",
-    parameter MEMORY_SIZE        = 4096
+    parameter MEMORY_SIZE        = 4096,
+    parameter DATA_MEM_WIDTH     = 32
 ) (
     input logic clk,
     input logic rst_n,
@@ -82,10 +83,11 @@ module Controller #(
     input  logic        data_mem_cyc_i,      // Indica uma transação ativa
     input  logic        data_mem_stb_i,      // Indica uma solicitação ativa
     input  logic        data_mem_we_i,       // 1 = Write, 0 = Read
+    input  logic [DATA_MEM_WIDTH/8-1:0] data_mem_sel_i,
 
     input  logic [31:0] data_mem_addr_i,     // Endereço
-    input  logic [31:0] data_mem_data_i,     // Dados de entrada (para escrita)
-    output logic [31:0] data_mem_data_o,     // Dados de saída (para leitura)
+    input  logic [DATA_MEM_WIDTH-1:0] data_mem_data_i,
+    output logic [DATA_MEM_WIDTH-1:0] data_mem_data_o,
 
     output logic        data_mem_ack_o       // Confirmação da transação
     `endif
@@ -117,7 +119,9 @@ logic [31:0] memory_read_data, memory_address, memory_write_data;
 
 // Data Memory
 logic data_memory_cyc, data_memory_stb, data_memory_ack, data_memory_we;
-logic [31:0] data_memory_read_data, data_memory_address, data_memory_write_data;
+logic [31:0] data_memory_address;
+logic [DATA_MEM_WIDTH-1:0] data_memory_read_data, data_memory_write_data;
+logic [DATA_MEM_WIDTH/8-1:0] data_memory_sel;
 
 // Bus Logic - Primary Memory
 assign memory_cyc = (memory_mux_selector) ?  core_cyc_i : (!interpreter_memory_address[31]) ? interpreter_cyc : 1'b0;
@@ -132,7 +136,10 @@ assign data_memory_cyc = (memory_mux_selector) ?  data_mem_cyc_i : (interpreter_
 assign data_memory_stb = (memory_mux_selector) ?  data_mem_stb_i : (interpreter_memory_address[31]) ? interpreter_stb : 1'b0;
 assign data_memory_we = (memory_mux_selector) ?  data_mem_we_i : (interpreter_memory_address[31]) ? interpreter_we : 1'b0;
 assign data_memory_address = (memory_mux_selector) ?  data_mem_addr_i : interpreter_memory_address;
-assign data_memory_write_data = (memory_mux_selector) ?  data_mem_data_i : interpreter_memory_write_data;
+assign data_memory_write_data = (memory_mux_selector) ? data_mem_data_i
+    : {{(DATA_MEM_WIDTH-32){1'b0}}, interpreter_memory_write_data};
+assign data_memory_sel = (memory_mux_selector && DATA_MEM_WIDTH != 32)
+    ? data_mem_sel_i : {{(DATA_MEM_WIDTH/8-4){1'b0}}, 4'b1111};
 `endif
 
 // Bus Logic - Core
@@ -145,14 +152,14 @@ assign core_data_o = (memory_mux_selector) ? memory_read_data : 32'h00000000;
 `endif
 `ifdef ENABLE_SECOND_MEMORY
 assign data_mem_ack_o = (memory_mux_selector) ? data_memory_ack : 1'b0;
-assign data_mem_data_o = (memory_mux_selector) ? (&data_mem_addr_i[31:2]) ? 
-    timer_data_out : data_memory_read_data : 32'h00000000;
+assign data_mem_data_o = (memory_mux_selector) ? (&data_mem_addr_i[31:2]) ?
+    {{(DATA_MEM_WIDTH-32){1'b0}}, timer_data_out} : data_memory_read_data : '0;
 `endif
 
 // Bus Logic - Interpreter
 // Interpreter memory response
 assign interpreter_memory_response = (!memory_mux_selector) ? (interpreter_memory_address[31]) ? data_memory_ack : memory_ack : 1'b0;
-assign interpreter_memory_read_data = (!memory_mux_selector) ? (interpreter_memory_address[31]) ? data_memory_read_data : memory_read_data : 32'h00000000;
+assign interpreter_memory_read_data = (!memory_mux_selector) ? (interpreter_memory_address[31]) ? data_memory_read_data[31:0] : memory_read_data : 32'h00000000;
 
 // Bus internal
 logic finish_execution;
@@ -286,6 +293,7 @@ Memory #(
     .cyc_i  (memory_cyc),
     .stb_i  (memory_stb),
     .we_i   (memory_we),
+    .sel_i  (4'b1111),
 
     .addr_i (memory_address),
     .data_i (memory_write_data),
@@ -307,13 +315,15 @@ Timer timer (
 `ifdef ENABLE_SECOND_MEMORY
 Memory #(
     .MEMORY_FILE (),
-    .MEMORY_SIZE (4096)
+    .MEMORY_SIZE (4096),
+    .DATA_WIDTH (DATA_MEM_WIDTH)
 ) Core_Data_Memory (
     .clk    (clk),
     
     .cyc_i  (data_memory_cyc),
     .stb_i  (data_memory_stb),
     .we_i   (data_memory_we),
+    .sel_i  (data_memory_sel),
 
     .addr_i (data_memory_address),
     .data_i (data_memory_write_data),
