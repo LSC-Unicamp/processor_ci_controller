@@ -39,6 +39,7 @@ module Controller #(
     input  logic        core_cyc_i,      // Indica uma transação ativa
     input  logic        core_stb_i,      // Indica uma solicitação ativa
     input  logic        core_we_i,       // 1 = Write, 0 = Read
+    input  logic [3:0]  core_sel_i = 4'b1111, // Seletores de byte (byte enable)
 
     input  logic [31:0] core_addr_i,     // Endereço
     input  logic [31:0] core_data_i,     // Dados de entrada (para escrita)
@@ -116,6 +117,7 @@ assign interpreter_stb = interpreter_memory_write | interpreter_memory_read;
 // Primary Memory
 logic memory_cyc, memory_stb, memory_ack, memory_we;
 logic [31:0] memory_read_data, memory_address, memory_write_data;
+logic [3:0]  memory_sel;
 
 // Data Memory
 logic data_memory_cyc, data_memory_stb, data_memory_ack, data_memory_we;
@@ -129,6 +131,8 @@ assign memory_stb = (memory_mux_selector) ?  core_stb_i : (!interpreter_memory_a
 assign memory_we = (memory_mux_selector) ?  core_we_i : (!interpreter_memory_address[31]) ? interpreter_we : 1'b0;
 assign memory_address = (memory_mux_selector) ?  core_addr_i : interpreter_memory_address;
 assign memory_write_data = (memory_mux_selector) ?  core_data_i : interpreter_memory_write_data;
+// Byte enable from the core. The interpreter's own accesses are full-word.
+assign memory_sel = (memory_mux_selector) ? core_sel_i : 4'b1111;
 
 `ifdef ENABLE_SECOND_MEMORY
 // Bus logic - Data Memory
@@ -293,7 +297,7 @@ Memory #(
     .cyc_i  (memory_cyc),
     .stb_i  (memory_stb),
     .we_i   (memory_we),
-    .sel_i  (4'b1111),
+    .sel_i  (memory_sel),
 
     .addr_i (memory_address),
     .data_i (memory_write_data),
