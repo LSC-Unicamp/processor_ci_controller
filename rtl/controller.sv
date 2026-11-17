@@ -84,7 +84,7 @@ module Controller #(
     input  logic        data_mem_cyc_i,      // Indica uma transação ativa
     input  logic        data_mem_stb_i,      // Indica uma solicitação ativa
     input  logic        data_mem_we_i,       // 1 = Write, 0 = Read
-    input  logic [DATA_MEM_WIDTH/8-1:0] data_mem_sel_i,
+    input  logic [DATA_MEM_WIDTH/8-1:0] data_mem_sel_i = {{(DATA_MEM_WIDTH/8-4){1'b0}}, 4'b1111},
 
     input  logic [31:0] data_mem_addr_i,     // Endereço
     input  logic [DATA_MEM_WIDTH-1:0] data_mem_data_i,
