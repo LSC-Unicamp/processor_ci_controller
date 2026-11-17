@@ -142,7 +142,7 @@ assign data_memory_we = (memory_mux_selector) ?  data_mem_we_i : (interpreter_me
 assign data_memory_address = (memory_mux_selector) ?  data_mem_addr_i : interpreter_memory_address;
 assign data_memory_write_data = (memory_mux_selector) ? data_mem_data_i
     : {{(DATA_MEM_WIDTH-32){1'b0}}, interpreter_memory_write_data};
-assign data_memory_sel = (memory_mux_selector && DATA_MEM_WIDTH != 32)
+assign data_memory_sel = (memory_mux_selector)
     ? data_mem_sel_i : {{(DATA_MEM_WIDTH/8-4){1'b0}}, 4'b1111};
 `endif
 
