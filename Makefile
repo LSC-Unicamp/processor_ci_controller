@@ -1,5 +1,9 @@
 all:controller
 
+interpreter_protocol: buildFolder
+	iverilog -g2012 -s interpreter_protocol_tb -o build/interpreter_protocol.vvp rtl/interpreter.sv testbenchs/interpreter_protocol_tb.sv
+	vvp build/interpreter_protocol.vvp
+
 controller: buildFolder src/controller.v tests/controller_test.v
 	@echo "Testing controller"
 	iverilog -o build/controller.o -s controller_tb src/clk_divider.v src/controller.v src/fifo.v \
