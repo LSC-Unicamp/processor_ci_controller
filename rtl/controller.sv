@@ -10,7 +10,8 @@ module Controller #(
     parameter RESET_CLK_CYCLES   = 20,
     parameter MEMORY_FILE        = "",
     parameter MEMORY_SIZE        = 4096,
-    parameter DATA_MEM_WIDTH     = 32
+    parameter DATA_MEM_WIDTH     = 32,
+    parameter SHARED_MEMORY      = 0
 ) (
     input logic clk,
     input logic rst_n,
@@ -124,21 +125,66 @@ logic data_memory_cyc, data_memory_stb, data_memory_ack, data_memory_we;
 logic [31:0] data_memory_address;
 logic [DATA_MEM_WIDTH-1:0] data_memory_read_data, data_memory_write_data;
 logic [DATA_MEM_WIDTH/8-1:0] data_memory_sel;
+localparam logic [31:0] ACT_DIAGNOSTIC_BASE = 32'h0007f000;
+wire act_diagnostic_host_access = SHARED_MEMORY && !memory_mux_selector &&
+    interpreter_cyc && interpreter_memory_address >= ACT_DIAGNOSTIC_BASE &&
+    interpreter_memory_address < 32'h00080000;
+logic [31:0] act_diagnostic_read_data;
+`ifndef ENABLE_SECOND_MEMORY
+assign act_diagnostic_read_data = 32'b0;
+initial if (SHARED_MEMORY) $fatal(1, "SHARED_MEMORY requires ENABLE_SECOND_MEMORY");
+`else
+initial if (SHARED_MEMORY && DATA_MEM_WIDTH != 32)
+    $fatal(1, "SHARED_MEMORY requires 32-bit data");
+`endif
 
 // Bus Logic - Primary Memory
-assign memory_cyc = (memory_mux_selector) ?  core_cyc_i : (!interpreter_memory_address[31]) ? interpreter_cyc : 1'b0;
-assign memory_stb = (memory_mux_selector) ?  core_stb_i : (!interpreter_memory_address[31]) ? interpreter_stb : 1'b0;
-assign memory_we = (memory_mux_selector) ?  core_we_i : (!interpreter_memory_address[31]) ? interpreter_we : 1'b0;
+assign memory_cyc = memory_mux_selector ? core_cyc_i :
+    (!interpreter_memory_address[31] && !act_diagnostic_host_access) ? interpreter_cyc : 1'b0;
+assign memory_stb = memory_mux_selector ? core_stb_i :
+    (!interpreter_memory_address[31] && !act_diagnostic_host_access) ? interpreter_stb : 1'b0;
+assign memory_we = memory_mux_selector ? core_we_i :
+    (!interpreter_memory_address[31] && !act_diagnostic_host_access) ? interpreter_we : 1'b0;
 assign memory_address = (memory_mux_selector) ?  core_addr_i : interpreter_memory_address;
 assign memory_write_data = (memory_mux_selector) ?  core_data_i : interpreter_memory_write_data;
 // Byte enable from the core. The interpreter's own accesses are full-word.
 assign memory_sel = (memory_mux_selector) ? core_sel_i : 4'b1111;
 
 `ifdef ENABLE_SECOND_MEMORY
+// ACT's virtual printer is a diagnostic device, separate from program RAM.
+wire act_virtual_print = SHARED_MEMORY && memory_mux_selector &&
+    data_mem_cyc_i && data_mem_stb_i && data_mem_addr_i == 32'h10000000;
+logic [31:0] act_diagnostic_char_count;
+logic [7:0] act_diagnostic_text [0:1023];
+always_ff @(posedge clk) begin
+    if (!rst_n || (act_diagnostic_host_access && interpreter_we &&
+                   interpreter_memory_address == ACT_DIAGNOSTIC_BASE)) begin
+        act_diagnostic_char_count <= 32'b0;
+    end else if (act_virtual_print && data_mem_we_i) begin
+        act_diagnostic_text[act_diagnostic_char_count[9:0]] <= data_mem_data_i[7:0];
+        act_diagnostic_char_count <= act_diagnostic_char_count + 1'b1;
+    end
+end
+always_comb begin
+    act_diagnostic_read_data = 32'b0;
+    if (interpreter_memory_address == ACT_DIAGNOSTIC_BASE)
+        act_diagnostic_read_data = act_diagnostic_char_count;
+    else if (interpreter_memory_address == ACT_DIAGNOSTIC_BASE + 4)
+        act_diagnostic_read_data = 32'd1024;
+    else if (interpreter_memory_address >= ACT_DIAGNOSTIC_BASE + 32'h100 &&
+             interpreter_memory_address < ACT_DIAGNOSTIC_BASE + 32'h500)
+        for (int lane = 0; lane < 4; lane++)
+            act_diagnostic_read_data[8*lane +: 8] =
+                act_diagnostic_text[((interpreter_memory_address -
+                    (ACT_DIAGNOSTIC_BASE + 32'h100)) + lane) & 32'h3ff];
+end
 // Bus logic - Data Memory
-assign data_memory_cyc = (memory_mux_selector) ?  data_mem_cyc_i : (interpreter_memory_address[31]) ? interpreter_cyc : 1'b0;
-assign data_memory_stb = (memory_mux_selector) ?  data_mem_stb_i : (interpreter_memory_address[31]) ? interpreter_stb : 1'b0;
-assign data_memory_we = (memory_mux_selector) ?  data_mem_we_i : (interpreter_memory_address[31]) ? interpreter_we : 1'b0;
+assign data_memory_cyc = memory_mux_selector ? data_mem_cyc_i :
+    (!SHARED_MEMORY && interpreter_memory_address[31]) ? interpreter_cyc : 1'b0;
+assign data_memory_stb = memory_mux_selector ? data_mem_stb_i :
+    (!SHARED_MEMORY && interpreter_memory_address[31]) ? interpreter_stb : 1'b0;
+assign data_memory_we = memory_mux_selector ? data_mem_we_i :
+    (!SHARED_MEMORY && interpreter_memory_address[31]) ? interpreter_we : 1'b0;
 assign data_memory_address = (memory_mux_selector) ?  data_mem_addr_i : interpreter_memory_address;
 assign data_memory_write_data = (memory_mux_selector) ? data_mem_data_i
     : {{(DATA_MEM_WIDTH-32){1'b0}}, interpreter_memory_write_data};
@@ -155,15 +201,19 @@ assign core_data_o = (memory_mux_selector) ? (&core_addr_i[31:3]) ? timer_data_o
 assign core_data_o = (memory_mux_selector) ? memory_read_data : 32'h00000000;
 `endif
 `ifdef ENABLE_SECOND_MEMORY
-assign data_mem_ack_o = (memory_mux_selector) ? data_memory_ack : 1'b0;
+assign data_mem_ack_o = (memory_mux_selector) ? (data_memory_ack || act_virtual_print) : 1'b0;
 assign data_mem_data_o = (memory_mux_selector) ? (&data_mem_addr_i[31:3]) ?
     {{(DATA_MEM_WIDTH-32){1'b0}}, timer_data_out} : data_memory_read_data : '0;
 `endif
 
 // Bus Logic - Interpreter
 // Interpreter memory response
-assign interpreter_memory_response = (!memory_mux_selector) ? (interpreter_memory_address[31]) ? data_memory_ack : memory_ack : 1'b0;
-assign interpreter_memory_read_data = (!memory_mux_selector) ? (interpreter_memory_address[31]) ? data_memory_read_data[31:0] : memory_read_data : 32'h00000000;
+assign interpreter_memory_response = (!memory_mux_selector) ?
+    (act_diagnostic_host_access ? 1'b1 :
+     SHARED_MEMORY ? memory_ack : (interpreter_memory_address[31] ? data_memory_ack : memory_ack)) : 1'b0;
+assign interpreter_memory_read_data = (!memory_mux_selector) ?
+    (act_diagnostic_host_access ? act_diagnostic_read_data :
+     SHARED_MEMORY ? memory_read_data : (interpreter_memory_address[31] ? data_memory_read_data[31:0] : memory_read_data)) : 32'h00000000;
 
 // Bus internal
 logic finish_execution;
@@ -191,9 +241,11 @@ always_ff @(posedge clk ) begin
             )
                 finish_execution <= 1'b1;
         end else begin
-            if(core_addr_i == end_position 
+            if((core_cyc_i && core_stb_i && core_we_i && core_ack_o &&
+                core_addr_i == end_position)
             `ifdef ENABLE_SECOND_MEMORY
-            || data_mem_addr_i == end_position
+            || (data_mem_cyc_i && data_mem_stb_i && data_mem_we_i &&
+                data_mem_ack_o && data_mem_addr_i == end_position)
             `endif
             )
                 finish_execution <= 1'b1;
@@ -288,6 +340,21 @@ UART #(
     .read_data      (communication_read_data)
 );
 
+`ifdef ENABLE_SECOND_MEMORY
+generate if (SHARED_MEMORY && DATA_MEM_WIDTH == 32) begin : Shared_Memory_Bank
+    MemoryShared #(.MEMORY_FILE(MEMORY_FILE), .MEMORY_SIZE(MEMORY_SIZE),
+                   .ACCESSIBLE_BYTES(MEMORY_SIZE)) Core_Shared_Memory (
+        .clk(clk),
+        .a_cyc_i(memory_cyc), .a_stb_i(memory_stb), .a_we_i(memory_we),
+        .a_sel_i(memory_sel), .a_addr_i(memory_address), .a_data_i(memory_write_data),
+        .a_data_o(memory_read_data), .a_ack_o(memory_ack),
+        .b_cyc_i(data_memory_cyc), .b_stb_i(data_memory_stb), .b_we_i(data_memory_we),
+        .b_sel_i(data_memory_sel[3:0]), .b_addr_i(data_memory_address),
+        .b_data_i(data_memory_write_data[31:0]),
+        .b_data_o(data_memory_read_data[31:0]), .b_ack_o(data_memory_ack)
+    );
+end else begin : Split_Memory_Banks
+`endif
 Memory #(
     .MEMORY_FILE (MEMORY_FILE),
     .MEMORY_SIZE (MEMORY_SIZE)
@@ -335,6 +402,7 @@ Memory #(
 
     .ack_o  (data_memory_ack)
 );
+end endgenerate
 `endif
 
 endmodule
